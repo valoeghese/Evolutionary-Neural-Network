@@ -11,9 +11,31 @@ Maybe later I'll make it learn properly
 from random import random, choice
 import json
 
+def vecAbsSub(a, b):
+    return [abs(a_i - b_i) for a_i, b_i in zip(a, b)]
+
+class SumAbsDifference:
+    def compute(self, computed, expected):
+        return sum(vecAbsSub(computed, expected))
+
+class PunishAndReward:
+    def compute(self, computed, expected):
+        result = 0
+        for i in range(len(computed)): # over every index
+            if (computed[i] > 0.5) == (expected[i] > 0.5): # reward if the same direction of 0.5 as the expected value
+                result -= 1
+            else: # otherwise punish
+                result += 1
+        return result
+
+##################
+##  Parameters  ##
+##################
+
 SHORT_REP = True # whether to strip internals for node string/repr and only show the number of sources
 COMPETING = 6 # 6 compete at a time
 PASSES_PER_TRAINING_SESSION = 5 #todo use this
+COST_FUNCTION = PunishAndReward()
 
 def sigmoid(x):
     return 0.5 * (x / (1 + abs(x))) + 0.5
@@ -80,6 +102,7 @@ class Network:
         self._layers = [] # actual step layers for calc
         self.first = inputs
         self.last = inputs
+        self.cost = "Something has gone wrong!"
 
     def push(self, n):
         self.last = generateLayer(self.last, n)
@@ -197,9 +220,6 @@ def keyOf(dict_, val):
     vals = list(dict_.values())
     return keys[vals.index(val)]
 
-def vecAbsSub(a, b):
-    return [abs(a_i - b_i) for a_i, b_i in zip(a, b)]
-
 """ more debug code
 print(choice(correct_answers))
 print(choice(correct_answers))
@@ -210,27 +230,36 @@ print(choice(correct_answers))
 
 def trainStep():
     global current_networks
-    test_item = choice(correct_answers)
+
+    # reset costs
+    for network in current_networks:
+        network.cost = 0
+
+    # iterate passes
+    for i in range(PASSES_PER_TRAINING_SESSION):
+        test_item = choice(correct_answers)
     
-    # set the values
-    red_channel.value = test_item["in"][0]
-    green_channel.value = test_item["in"][1]
-    blue_channel.value = test_item["in"][2]
+        # set the values
+        red_channel.value = test_item["in"][0]
+        green_channel.value = test_item["in"][1]
+        blue_channel.value = test_item["in"][2]
     
-    # get expected answer in terms of the node value map
-    expected = nodeMap(test_item["out"])
+        # get expected answer in terms of the node value map
+        expected = nodeMap(test_item["out"])
+
+        for network in current_networks:
+            # compute the result for this pass
+            computed_result = network.compute()
+            # compute cost
+            network.cost += COST_FUNCTION.compute(computed_result, expected)
     
     # test the networks and find the best (lowest) cost network
     best_network = None
     best_cost = 999999999 # big number
     
     for network in current_networks:
-        # compute the result
-        computed_result = network.compute()
-        # compute cost
-        computed_cost = sum(vecAbsSub(computed_result, expected))
-        if computed_cost < best_cost:
-            best_cost = computed_cost
+        if network.cost < best_cost:
+            best_cost = network.cost
             best_network = network
             
     # let the best network reproduce
@@ -248,9 +277,14 @@ def trainStep():
     current_networks.append(_network)
 
 if "T" == cmd:
-    # train 5 million cycles
-    for i in range(5_000_000):
+    trainStep()
+    
+    print("Best initial network has expected ~average cost " + str(current_networks[0].cost / PASSES_PER_TRAINING_SESSION))
+    # train 50 thousand cycles
+    for i in range(50_000 - 1):
         trainStep()
+    # say the cost of the result network
+    print("Achieved network of expected ~average cost " + str(current_networks[0].cost / PASSES_PER_TRAINING_SESSION))
     # next, apply
     cmd = "A"
 
@@ -262,7 +296,8 @@ if "A" == cmd:
             break
         computed_result = current_networks[0].compute([float(a.strip()) for a in cmd.split(",")])
         result_index = computed_result.index(max(computed_result)) # get the index of the one with the max value
-        print(keyOf(node_index_map, result_index)) # get the human readable form of that number
+        print(keyOf(node_index_map, result_index), end=" ") # get the human readable form of that number
+        print(computed_result) # can be interesting to see this
 
 
 
