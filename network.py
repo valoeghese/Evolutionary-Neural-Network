@@ -33,9 +33,14 @@ class PunishAndReward:
 ##################
 
 SHORT_REP = True # whether to strip internals for node string/repr and only show the number of sources
-COMPETING = 6 # 6 compete at a time
-PASSES_PER_TRAINING_SESSION = 5 #todo use this
-COST_FUNCTION = PunishAndReward()
+
+COMPETING = 7 # the number of networks competing at a time. One will be the original, one a completely random network (useful early on to prevent homogeniety) and the rest will be mutations of the original.
+PASSES_PER_TRAINING_SESSION = -1 # do this many tests for every training session. if equal to -1, does each item in the set once.
+
+COST_FUNCTION = PunishAndReward() # use this cost function
+
+CYCLES = 60_000 # have this many training cycles
+REPORT_EVERY = 5_000 # report expected avg cost every this many cycles. This will vary based not only on the network but also on the samples used in that generation's test (only if PASSES_PER_TRAINING_SESSION != -1).
 
 def sigmoid(x):
     return 0.5 * (x / (1 + abs(x))) + 0.5
@@ -163,6 +168,14 @@ red_channel = Node()
 green_channel = Node()
 blue_channel = Node()
 
+def generateNewNetwork():
+    result = Network([red_channel, green_channel, blue_channel])
+
+    result.push(16) # Intermediate Stage for complexity
+    result.push(16) # Intermediate Stage 2 for complexity
+    result.push(11) # Colours to pick from ROYGB, Purple, Pink, Grey, Brown, White, Black
+    return result
+
 """
 network = Network([red_channel, green_channel, blue_channel])
 
@@ -199,10 +212,7 @@ with open("nndata.json", "r") as file:
     node_index_map = _qwddf["translations"]
 
 for i in range(COMPETING):
-    _network = Network([red_channel, green_channel, blue_channel])
-
-    _network.push(16) # Intermediate Stage for complexity
-    _network.push(11) # Colours to pick from ROYGB, Purple, Pink, Grey, Brown, White, Black
+    _network = generateNewNetwork()
     current_networks.append(_network)
 
 cmd = input("[T] Train, [A] Apply> ")
@@ -228,30 +238,42 @@ print(choice(correct_answers))
 print(choice(correct_answers))
 """
 
+pass_n = 0
+true_passes_per_training_session = len(correct_answers) if PASSES_PER_TRAINING_SESSION == -1 else PASSES_PER_TRAINING_SESSION
+
+def trainNetworksOn(test_item):
+    # set the values
+    red_channel.value = test_item["in"][0]
+    green_channel.value = test_item["in"][1]
+    blue_channel.value = test_item["in"][2]
+
+    # get expected answer in terms of the node value map
+    expected = nodeMap(test_item["out"])
+
+    for network in current_networks:
+        # compute the result for this pass
+        computed_result = network.compute()
+        # compute cost
+        network.cost += COST_FUNCTION.compute(computed_result, expected)
+
 def trainStep():
-    global current_networks
+    global current_networks, pass_n
+    pass_n += 1
 
     # reset costs
     for network in current_networks:
         network.cost = 0
 
     # iterate passes
-    for i in range(PASSES_PER_TRAINING_SESSION):
-        test_item = choice(correct_answers)
-    
-        # set the values
-        red_channel.value = test_item["in"][0]
-        green_channel.value = test_item["in"][1]
-        blue_channel.value = test_item["in"][2]
-    
-        # get expected answer in terms of the node value map
-        expected = nodeMap(test_item["out"])
 
-        for network in current_networks:
-            # compute the result for this pass
-            computed_result = network.compute()
-            # compute cost
-            network.cost += COST_FUNCTION.compute(computed_result, expected)
+    # -1 means do the entire list
+    if PASSES_PER_TRAINING_SESSION == -1:
+        for test_item in correct_answers:
+            trainNetworksOn(test_item)
+    else:
+        for i in range(PASSES_PER_TRAINING_SESSION):
+            test_item = choice(correct_answers)
+            trainNetworksOn(test_item)
     
     # test the networks and find the best (lowest) cost network
     best_network = None
@@ -264,27 +286,27 @@ def trainStep():
             
     # let the best network reproduce
     #print("Best Cost " + str(best_cost))
-    current_networks = [best_network]
+    current_networks = [best_network] # it will compete against its children to assure the stats don't get worse
 
     for i in range(COMPETING - 2):
         current_networks.append(best_network.reproduce())
 
     # add in another random network
-    _network = Network([red_channel, green_channel, blue_channel])
-
-    _network.push(16)
-    _network.push(11)
+    _network = generateNewNetwork()
     current_networks.append(_network)
+
+    if pass_n % REPORT_EVERY == 0:
+        print("Progress Report: network of generation " + str(pass_n) + " has expected ~average cost " + str(current_networks[0].cost / true_passes_per_training_session))
 
 if "T" == cmd:
     trainStep()
     
-    print("Best initial network has expected ~average cost " + str(current_networks[0].cost / PASSES_PER_TRAINING_SESSION))
-    # train 50 thousand cycles
-    for i in range(50_000 - 1):
+    print("Best initial network has expected ~average cost " + str(current_networks[0].cost / true_passes_per_training_session))
+    
+    for i in range(CYCLES - 1):
         trainStep()
     # say the cost of the result network
-    print("Achieved network of expected ~average cost " + str(current_networks[0].cost / PASSES_PER_TRAINING_SESSION))
+    print("Achieved network of expected ~average cost " + str(current_networks[0].cost / true_passes_per_training_session))
     # next, apply
     cmd = "A"
 
