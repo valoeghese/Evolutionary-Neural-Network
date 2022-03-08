@@ -6,7 +6,6 @@ Maybe later I'll make it learn properly
 
 ## TODO ##
 # Store state into a file using repr (temp set long regardless if so) or another system and read the state.
-# Ability to train. Original network and a series of mutations compete in identifying the set of colours. Strongest wins. Use output values diff sum thing for cost.
 ##########
 
 from random import random, choice
@@ -14,6 +13,7 @@ import json
 
 SHORT_REP = True # whether to strip internals for node string/repr and only show the number of sources
 COMPETING = 6 # 6 compete at a time
+PASSES_PER_TRAINING_SESSION = 5 #todo use this
 
 def sigmoid(x):
     return 0.5 * (x / (1 + abs(x))) + 0.5
